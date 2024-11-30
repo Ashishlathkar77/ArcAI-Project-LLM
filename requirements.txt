@@ -6,3 +6,4 @@ python-dotenv
 unstructured
 langchain_community
 tiktoken
+textblob
