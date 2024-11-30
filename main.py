@@ -41,6 +41,61 @@ fine_tuning_file = "fine_tuning_data.jsonl"
 main_placeholder = st.empty()
 llm = ChatOpenAI(model="gpt-3.5-turbo", temperature=0.9, max_tokens=500)
 
+# Question-answering system using FAISS
+def faiss_question_answering():
+    st.header("Ask a Question Based on the Article")
+
+    # Dropdown to select question type
+    question_type = st.selectbox("Select Question Type", [
+        "Summarize the article",
+        "Explain the key findings",
+        "What is the conclusion?",
+        "What are the main arguments?",
+        "What evidence supports the claims?",
+        "How does this article relate to the broader topic?"
+    ])
+
+    # Ask the user to input a custom question
+    question = st.text_input(f"Enter a question related to the article (or use the dropdown):", 
+                             value=f"Please {question_type.lower()}")
+
+    if question:
+        if os.path.exists(index_file_path) and os.path.exists("docstore.pkl") and os.path.exists("index_to_docstore_id.pkl"):
+            try:
+                # Load FAISS index and related details
+                index = faiss.read_index(index_file_path)
+                with open("docstore.pkl", "rb") as f:
+                    docstore = pickle.load(f)
+                with open("index_to_docstore_id.pkl", "rb") as f:
+                    index_to_docstore_id = pickle.load(f)
+
+                embeddings = OpenAIEmbeddings()
+                vectorstore = FAISS(embeddings.embed_query, index, docstore, index_to_docstore_id)
+
+                # Perform retrieval and answer generation
+                retrieval_qa = RetrievalQAWithSourcesChain.from_chain_type(
+                    llm,
+                    chain_type="stuff", 
+                    retriever=vectorstore.as_retriever()
+                )
+
+                # Correct input structure: pass 'question' key
+                result = retrieval_qa.invoke({"question": question})  # Use 'question' instead of 'input'
+
+                answer = result["answer"]
+                sources = result["sources"]
+
+                # Display the answer and sources
+                st.subheader("Answer:")
+                st.write(answer)
+                st.subheader("Sources:")
+                st.write(sources)
+
+            except Exception as e:
+                st.error(f"Error querying the model: {str(e)}")
+        else:
+            st.error("FAISS index or related files are not available. Please process a URL first.")
+
 # Step 1: Scrape Data from URL
 if process_url_clicked:
     try:
@@ -177,56 +232,8 @@ if fine_tune_clicked:
 
         fine_tune_model_id = fine_tune_response['fine_tuned_model']
         main_placeholder.text(f"Model fine-tuned successfully. Fine-tuned model ID: {fine_tune_model_id}")
-
     except Exception as e:
-        main_placeholder.error(f"Error during fine-tuning: {str(e)}")
+        main_placeholder.error(f"Error fine-tuning the model: {str(e)}")
 
-# Step 4: Query the Fine-tuned Model
-question_options = [
-    "What is the main topic of this paragraph?",
-    "Explain the key insights mentioned here.",
-    "Summarize this content briefly.",
-    "What is the conclusion of this section?",
-    "What are the major findings in this article?",
-    "What does the author suggest as the next steps?",
-    "What are the key arguments presented?",
-    "How does this information relate to the overall theme?",
-    "What evidence does the author provide to support their claims?",
-    "Can you provide a brief summary of the article's introduction?"
-]
-
-query = st.selectbox("Select a question to ask the model:", question_options)
-
-if query:
-    if os.path.exists(index_file_path) and os.path.exists("docstore.pkl") and os.path.exists("index_to_docstore_id.pkl"):
-        try:
-            # Load FAISS index and details
-            index = faiss.read_index(index_file_path)
-            with open("docstore.pkl", "rb") as f:
-                docstore = pickle.load(f)
-            with open("index_to_docstore_id.pkl", "rb") as f:
-                index_to_docstore_id = pickle.load(f)
-
-            embeddings = OpenAIEmbeddings()
-            vectorstore = FAISS(embeddings.embed_query, index, docstore, index_to_docstore_id)
-
-            # Perform retrieval and answer generation
-            retrieval_qa = RetrievalQAWithSourcesChain.from_chain_type(
-                llm,
-                chain_type="stuff", 
-                retriever=vectorstore.as_retriever()
-            )
-            
-            # Correct input structure: pass 'question' key
-            result = retrieval_qa.invoke({"question": query})  # Use 'question' instead of 'input'
-
-            answer = result["answer"]
-            sources = result["sources"]
-
-            # Display the answer and sources
-            main_placeholder.text(f"Answer: {answer}")
-            st.subheader("Sources")
-            st.write(sources)
-
-        except Exception as e:
-            main_placeholder.error(f"Error querying the model: {str(e)}")
+# Integrate the FAISS Q&A functionality
+faiss_question_answering()
